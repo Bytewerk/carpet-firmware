@@ -183,13 +183,23 @@ int main(void) {
   while(1) {
     HAL_Delay(DELAY_IN_MAIN_LOOP); //delay in ms
 
+		cmd1 = 0; // pre init with no-action
+		cmd2 = 0;
+
     #ifdef CONTROL_NUNCHUCK
       Nunchuck_Read();
-      cmd1 = CLAMP((nunchuck_data[0] - 127) * 8, -1000, 1000); // x - axis. Nunchuck joystick readings range 30 - 230
-      cmd2 = CLAMP((nunchuck_data[1] - 128) * 8, -1000, 1000); // y - axis
+      button1 = !((uint8_t)nunchuck_data[5] & 1);
+      button2 = !((uint8_t)(nunchuck_data[5] >> 1) & 1 );
 
-      button1 = (uint8_t)nunchuck_data[5] & 1;
-      button2 = (uint8_t)(nunchuck_data[5] >> 1) & 1;
+			if( button1 ) {
+	      cmd1 = CLAMP((nunchuck_data[0] - 127) * 8, -1000, 1000); // x - axis. Nunchuck joystick readings range 30 - 230
+  	    cmd2 = CLAMP((nunchuck_data[1] - 128) * 8, -200, 1000); // y - axis
+			}
+			else if( button2 ) {
+	      cmd1 = CLAMP((nunchuck_data[0] - 127) * 6, -500, 500); // x - axis. Nunchuck joystick readings range 30 - 230
+  	    cmd2 = CLAMP((nunchuck_data[1] - 128) * 4, -500, 500); // y - axis
+			}
+
     #endif
 
     #ifdef CONTROL_PPM
@@ -201,8 +211,8 @@ int main(void) {
 
     #ifdef CONTROL_ADC
       // ADC values range: 0-4095, see ADC-calibration in config.h
-      cmd1 = CLAMP(adc_buffer.l_tx2 - ADC1_MIN, 0, ADC1_MAX) / (ADC1_MAX / 1000.0f);  // ADC1
-      cmd2 = CLAMP(adc_buffer.l_rx2 - ADC2_MIN, 0, ADC2_MAX) / (ADC2_MAX / 1000.0f);  // ADC2
+      cmd1 = CLAMP(adc_buffer.l_tx2 - ADC1_MIN, 0, ADC1_MAX) / (ADC1_MAX / 1000.0f);  // ADC1: direction
+      cmd2 = CLAMP(adc_buffer.l_rx2 - ADC2_MIN, 0, ADC2_MAX) / (ADC2_MAX / 1000.0f);  // ADC2: length
 
       // use ADCs as button inputs:
       button1 = (uint8_t)(adc_buffer.l_tx2 > 2000);  // ADC1
