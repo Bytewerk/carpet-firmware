@@ -36,9 +36,6 @@ extern volatile adc_buf_t adc_buffer;
 extern I2C_HandleTypeDef hi2c2;
 extern UART_HandleTypeDef huart2;
 
-int cmd1;  // normalized input values. -1000 to 1000
-int cmd2;
-int cmd3;
 
 typedef struct{
    int16_t steer;
@@ -48,7 +45,6 @@ typedef struct{
 
 volatile Serialcommand command;
 
-uint8_t button1, button2;
 
 int steer; // global variable for steering. -1000 to 1000
 int speed; // global variable for speed. -1000 to 1000
@@ -91,6 +87,11 @@ void poweroff() {
 
 
 int main(void) {
+
+	uint8_t button1, button2, buttonC, buttonZ; // nunchuck
+	int cmd1;  // normalized input values. -1000 to 1000
+	int cmd2;
+
   HAL_Init();
   __HAL_RCC_AFIO_CLK_ENABLE();
   HAL_NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);
@@ -180,6 +181,18 @@ int main(void) {
 
   enable = 1;  // enable motors
 
+
+	// read buttons for settings that are only applied on startup
+	Nunchuck_Read();
+
+	buttonZ = !((uint8_t)nunchuck_data[5] & 1);
+	buttonC = !((uint8_t)(nunchuck_data[5] >> 1) & 1 );
+
+	int speed_clearance = 0;
+	if( buttonZ ) {
+		speed_clearance = 1;
+	}
+
   while(1) {
     HAL_Delay(DELAY_IN_MAIN_LOOP); //delay in ms
 
@@ -188,16 +201,16 @@ int main(void) {
 
     #ifdef CONTROL_NUNCHUCK
       Nunchuck_Read();
-      button1 = !((uint8_t)nunchuck_data[5] & 1);
-      button2 = !((uint8_t)(nunchuck_data[5] >> 1) & 1 );
+      buttonZ = !((uint8_t)nunchuck_data[5] & 1);
+      buttonC = !((uint8_t)(nunchuck_data[5] >> 1) & 1 );
 
-			if( button1 ) {
+			if( buttonZ && speed_clearance ) {
 	      cmd1 = CLAMP((nunchuck_data[0] - 127) * 8, -1000, 1000); // x - axis. Nunchuck joystick readings range 30 - 230
-  	    cmd2 = CLAMP((nunchuck_data[1] - 128) * 8, -200, 1000); // y - axis
+	      cmd2 = CLAMP((nunchuck_data[1] - 128) * 8, -500 , 1000); // y - axis
 			}
-			else if( button2 ) {
-	      cmd1 = CLAMP((nunchuck_data[0] - 127) * 6, -500, 500); // x - axis. Nunchuck joystick readings range 30 - 230
-  	    cmd2 = CLAMP((nunchuck_data[1] - 128) * 4, -500, 500); // y - axis
+			else if( buttonC ) {
+	      cmd1 = CLAMP((nunchuck_data[0] - 127) * 6, -600, 600); // x - axis. Nunchuck joystick readings range 30 - 230
+	      cmd2 = CLAMP((nunchuck_data[1] - 128) * 4, -500, 500); // y - axis
 			}
 
     #endif
