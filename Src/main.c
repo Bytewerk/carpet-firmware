@@ -36,6 +36,8 @@ extern volatile adc_buf_t adc_buffer;
 extern I2C_HandleTypeDef hi2c2;
 extern UART_HandleTypeDef huart2;
 
+static int speed = 0; // for speed. -1000 to 1000
+static int steer = 0; // for steering. -1000 to 1000
 
 typedef struct{
    int16_t steer;
@@ -46,8 +48,6 @@ typedef struct{
 volatile Serialcommand command;
 
 
-int steer; // global variable for steering. -1000 to 1000
-int speed; // global variable for speed. -1000 to 1000
 
 extern volatile int pwml;  // global variable for pwm left. -1000 to 1000
 extern volatile int pwmr;  // global variable for pwm right. -1000 to 1000
@@ -181,23 +181,47 @@ int main(void) {
 
   enable = 1;  // enable motors
 
+	#ifdef CONTROL_NUNCHUCK
+		// read buttons for settings that are only applied on startup
+		Nunchuck_Read();
 
-	// read buttons for settings that are only applied on startup
-	Nunchuck_Read();
+		buttonZ = !((uint8_t)nunchuck_data[5] & 1);
+		buttonC = !((uint8_t)(nunchuck_data[5] >> 1) & 1 );
 
-	buttonZ = !((uint8_t)nunchuck_data[5] & 1);
-	buttonC = !((uint8_t)(nunchuck_data[5] >> 1) & 1 );
-
-	int speed_clearance = 0;
-	if( buttonZ ) {
-		speed_clearance = 1;
-	}
+		int speed_clearance = 0;
+		if( buttonZ ) {
+			speed_clearance = 1;
+		}
+	#endif
 
   while(1) {
     HAL_Delay(DELAY_IN_MAIN_LOOP); //delay in ms
 
 		cmd1 = 0; // pre init with no-action
 		cmd2 = 0;
+
+    #ifdef CONTROL_ADC
+   	  // ADC values range: 0-4095, see ADC-calibration in config.h
+
+ 	    cmd1  = CLAMP(adc_buffer.l_rx2, ADC1_MIN, ADC1_MAX); // direction
+			cmd1 -= ADC1_MIN; // fix offset
+			cmd1 -= (ADC1_MAX - ADC1_MIN)/2; // fix for left right bias
+			cmd1  = (cmd1 * 500) / (ADC1_MAX - ADC1_MIN); // fix scaling
+
+			cmd2  = CLAMP(adc_buffer.l_tx2, 0, ADC2_MAX); // cable length
+			cmd2  = -1 * (cmd2 * 1000) / ADC2_MAX; // fix scaling
+
+			if( cmd2 > -400 ) {
+				// ignore cable direction when cable is not pulled out
+				cmd1 = 0;
+				cmd2 = 0;
+			}
+			else {
+				cmd2 += 200; // fix sudden jolt when reaching the adc mode actviation limit
+			}
+
+      timeout = 0;
+    #endif
 
     #ifdef CONTROL_NUNCHUCK
       Nunchuck_Read();
@@ -222,18 +246,6 @@ int main(void) {
       float scale = ppm_captured_value[2] / 1000.0f;
     #endif
 
-    #ifdef CONTROL_ADC
-      // ADC values range: 0-4095, see ADC-calibration in config.h
-      cmd1 = CLAMP(adc_buffer.l_tx2 - ADC1_MIN, 0, ADC1_MAX) / (ADC1_MAX / 1000.0f);  // ADC1: direction
-      cmd2 = CLAMP(adc_buffer.l_rx2 - ADC2_MIN, 0, ADC2_MAX) / (ADC2_MAX / 1000.0f);  // ADC2: length
-
-      // use ADCs as button inputs:
-      button1 = (uint8_t)(adc_buffer.l_tx2 > 2000);  // ADC1
-      button2 = (uint8_t)(adc_buffer.l_rx2 > 2000);  // ADC2
-
-      timeout = 0;
-    #endif
-
     #ifdef CONTROL_SERIAL_USART2
       cmd1 = CLAMP((int16_t)command.steer, -1000, 1000);
       cmd2 = CLAMP((int16_t)command.speed, -1000, 1000);
@@ -243,14 +255,15 @@ int main(void) {
 
 
     // ####### LOW-PASS FILTER #######
+		// speed is the distance of the joystick from the center position
+		// steer is the direction the vehicle is supposed to move in.
     steer = steer * (1.0 - FILTER) + cmd1 * FILTER;
     speed = speed * (1.0 - FILTER) + cmd2 * FILTER;
 
 
     // ####### MIXER #######
-    speedR = CLAMP(speed * SPEED_COEFFICIENT -  steer * STEER_COEFFICIENT, -1000, 1000);
-    speedL = CLAMP(speed * SPEED_COEFFICIENT +  steer * STEER_COEFFICIENT, -1000, 1000);
-
+    speedR = CLAMP(CLAMP(speed * SPEED_COEFFICIENT, -1000, 1000) - CLAMP(steer * STEER_COEFFICIENT, -1000, 1000), -1000, 1000);
+    speedL = CLAMP(CLAMP(speed * SPEED_COEFFICIENT, -1000, 1000) + CLAMP(steer * STEER_COEFFICIENT, -1000, 1000), -1000, 1000);
 
     #ifdef ADDITIONAL_CODE
       ADDITIONAL_CODE;
